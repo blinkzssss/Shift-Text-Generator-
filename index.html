@@ -63,7 +63,11 @@
       </div>
 
       <label>People list (one per line)</label>
-      <textarea id="peopleList" placeholder="Eric&#10;Tania&#10;Liam&#10;Cici"></textarea>
+<div class="muted" style="margin-top:6px;margin-bottom:8px">
+  Format: <b>Name</b> (works full shift) OR <b>Name | 8:00 AM | 12:00 PM</b> (entry/exit)
+</div>
+<textarea id="peopleList" placeholder="Eric | 8:00 AM | 12:00 PM&#10;Tania | 9:00 AM | 3:00 PM&#10;Liam" ></textarea>
+
 
       <div class="row" style="margin-top:12px">
         <button class="btn primary" id="buildBlocks">Build blocks</button>
@@ -99,4 +103,5 @@
   </script>
 </body>
 </html>
+
 
