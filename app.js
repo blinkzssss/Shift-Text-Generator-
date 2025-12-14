@@ -8,8 +8,6 @@ const ROLES = [
   { key: "frontShots", label: "Front Shots" },
   { key: "frontMilk", label: "Front Milk" },
   { key: "texter", label: "Texter" },
-  { key: "texter", label: "Texter" },
-  { key: "slayer", label: "Slayer" },
   { key: "slayer", label: "Slayer" },
   { key: "blender", label: "Blender" },
 ];
@@ -614,5 +612,6 @@ $("generate").addEventListener("click", generateText);
 $("copy").addEventListener("click", copyOutput);
 $("saveLocal").addEventListener("click", saveLocal);
 $("loadLocal").addEventListener("click", loadLocal);
+
 
 
