@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Shift Text Generator</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#111827" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1220;color:#e5e7eb}
+    .wrap{max-width:980px;margin:0 auto;padding:16px}
+    h1{font-size:20px;margin:8px 0 16px}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:14px;padding:14px;margin:12px 0}
+    label{display:block;font-size:12px;color:#9ca3af;margin:10px 0 6px}
+    input,textarea,select,button{width:100%;padding:10px;border-radius:12px;border:1px solid #374151;background:#0b1220;color:#e5e7eb}
+    textarea{min-height:90px;resize:vertical}
+    .grid{display:grid;gap:12px}
+    @media(min-width:860px){.grid{grid-template-columns:1fr 1fr}}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row > *{flex:1}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #374151;border-radius:999px;margin:6px 6px 0 0}
+    .pill input{width:auto}
+    .btn{cursor:pointer;font-weight:600}
+    .btn.primary{background:#2563eb;border-color:#2563eb}
+    .btn.ghost{background:transparent}
+    .muted{color:#9ca3af;font-size:12px}
+    .block{border:1px solid #374151;border-radius:14px;padding:12px;margin-top:12px}
+    .block h3{margin:0 0 8px;font-size:14px}
+    .twoCol{display:grid;grid-template-columns:1fr;gap:10px}
+    @media(min-width:860px){.twoCol{grid-template-columns:1fr 1fr}}
+    pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;border:1px solid #374151;border-radius:14px;padding:12px;margin:0}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Shift Text Generator</h1>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label>Shift start</label>
+          <input id="startTime" type="time" value="12:00">
+        </div>
+        <div>
+          <label>Shift end</label>
+          <input id="endTime" type="time" value="18:00">
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label>Rotation (minutes)</label>
+          <input id="rotation" type="number" value="60" min="1" step="1" />
+<div class="muted">Example: 60 (hourly), 120 (every 2 hours), 90, etc.</div>
+
+          <div class="muted">This defines each “time change” block.</div>
+        </div>
+        <div>
+          <label>Role set (global defaults)</label>
+          <div id="roleDefaults" class="row"></div>
+          <div class="muted">You can override toggles per block below.</div>
+        </div>
+      </div>
+
+      <label>People list (one per line)</label>
+      <textarea id="peopleList" placeholder="Eric&#10;Tania&#10;Liam&#10;Cici"></textarea>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="buildBlocks">Build blocks</button>
+        <button class="btn ghost" id="saveLocal">Save</button>
+        <button class="btn ghost" id="loadLocal">Load</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Tip: Build blocks, then edit each block’s roster + toggles.</div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:16px;margin:0 0 8px">Blocks</h2>
+      <div id="blocks"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="generate">Generate full shift text</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="font-size:16px;margin:0 0 8px">Output</h2>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn primary" id="copy">Copy to clipboard</button>
+      </div>
+      <pre id="output">(nothing yet)</pre>
+      <div class="muted" style="margin-top:8px">Paste this into GroupMe.</div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./service-worker.js');
+    }
+  </script>
+</body>
+</html>
