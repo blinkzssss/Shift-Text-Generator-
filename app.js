@@ -572,6 +572,19 @@ async function copyOutput() {
   }
 }
 
+function clearPeople() {
+  if (!confirm("Clear all names?")) return;
+
+  // Clear people list
+  $("peopleList").value = "";
+
+  // Clear blocks + output
+  window.__blocks = [];
+  $("blocks").innerHTML = "";
+  $("output").textContent = "(nothing yet)";
+}
+
+
 function saveLocal() {
   const blocks = window.__blocks || [];
   const data = {
@@ -612,6 +625,9 @@ $("generate").addEventListener("click", generateText);
 $("copy").addEventListener("click", copyOutput);
 $("saveLocal").addEventListener("click", saveLocal);
 $("loadLocal").addEventListener("click", loadLocal);
+$("clearPeople").addEventListener("click", clearPeople);
+
+
 
 
 
