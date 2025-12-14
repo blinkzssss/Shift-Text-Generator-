@@ -27,24 +27,37 @@ function minutesToLabel(mins) {
 }
 
 function parseTimeLabel(s) {
-  // Accepts "8:00 AM", "12:30 PM" (case-insensitive)
+  if (!s) return null;
   s = s.trim().toUpperCase();
-  const m = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
-  if (!m) return null;
 
-  let hh = Number(m[1]);
-  const mm = Number(m[2]);
-  const ap = m[3];
+  // Case 1: 8:00 AM / 8 AM
+  let m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
+  if (m) {
+    let hh = Number(m[1]);
+    let mm = Number(m[2] || 0);
+    const ap = m[3];
 
-  if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+    if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
 
-  if (ap === "AM") {
-    if (hh === 12) hh = 0;
-  } else {
-    if (hh !== 12) hh += 12;
+    if (ap === "AM") {
+      if (hh === 12) hh = 0;
+    } else {
+      if (hh !== 12) hh += 12;
+    }
+    return hh * 60 + mm;
   }
-  return hh * 60 + mm;
+
+  // Case 2: plain hour like "8" or "4"
+  if (/^\d{1,2}$/.test(s)) {
+    let h = Number(s);
+    if (h < 1 || h > 12) return null;
+    // default to AM, adjusted later
+    return h * 60;
+  }
+
+  return null;
 }
+
 
 
 function timeToMinutes(t) {
@@ -123,8 +136,15 @@ const peopleAvail = rawLines.map(line => {
     return { name, start, end };
   }
 
-  const entry = parseTimeLabel(parts[1]);
-  const exit  = parseTimeLabel(parts[2]);
+  let entry = parseTimeLabel(parts[1]);
+  let exit  = parseTimeLabel(parts[2]);
+
+  // Handle shorthand like "8-4"
+  if (entry != null && exit != null && entry >= exit) {
+    // assume entry AM, exit PM
+    exit += 12 * 60;
+  }
+
 
   if (entry == null || exit == null || !(exit > entry)) {
     alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 8:00 AM | 12:00 PM`);
@@ -626,6 +646,7 @@ $("copy").addEventListener("click", copyOutput);
 $("saveLocal").addEventListener("click", saveLocal);
 $("loadLocal").addEventListener("click", loadLocal);
 $("clearPeople").addEventListener("click", clearPeople);
+
 
 
 
