@@ -26,6 +26,26 @@ function minutesToLabel(mins) {
   return `${h12}:${mm} ${ampm}`;
 }
 
+function parseTimeLabel(s) {
+  // Accepts "8:00 AM", "12:30 PM" (case-insensitive)
+  s = s.trim().toUpperCase();
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (!m) return null;
+
+  let hh = Number(m[1]);
+  const mm = Number(m[2]);
+  const ap = m[3];
+
+  if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+
+  if (ap === "AM") {
+    if (hh === 12) hh = 0;
+  } else {
+    if (hh !== 12) hh += 12;
+  }
+  return hh * 60 + mm;
+}
+
 
 function timeToMinutes(t) {
   const [hh, mm] = t.split(":").map(Number);
@@ -84,9 +104,51 @@ if (!Number.isFinite(rot) || rot < 1) {
   }
 
   // prefill people list into first block (optional)
-  const people = $("peopleList").value.split("\n").map(s => s.trim()).filter(Boolean);
-  // Default EVERY block to everyone in master list (you can remove per block fast)
-for (const b of blocks) b.people = [...people];
+  // People list supports either:
+//   Name
+// OR
+//   Name | 8:00 AM | 12:00 PM
+const rawLines = $("peopleList").value
+  .split("\n")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const peopleAvail = rawLines.map(line => {
+  const parts = line.split("|").map(x => x.trim()).filter(Boolean);
+  const name = parts[0];
+  if (!name) return null;
+
+  // If no times, assume they work the whole shift
+  if (parts.length < 3) {
+    return { name, start, end };
+  }
+
+  const entry = parseTimeLabel(parts[1]);
+  const exit  = parseTimeLabel(parts[2]);
+
+  if (entry == null || exit == null || !(exit > entry)) {
+    alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 8:00 AM | 12:00 PM`);
+    return null;
+  }
+
+  return { name, start: entry, end: exit };
+}).filter(Boolean);
+
+// Assign people to each block by overlap with the block time
+for (const blk of blocks) {
+  const blkStart = parseTimeLabel(blk.start);
+  const blkEnd   = parseTimeLabel(blk.end);
+
+  // Fallback if parsing fails for any reason
+  if (blkStart == null || blkEnd == null) {
+    blk.people = peopleAvail.map(p => p.name);
+    continue;
+  }
+
+  blk.people = peopleAvail
+    .filter(p => p.start < blkEnd && p.end > blkStart) // overlap test
+    .map(p => p.name);
+}
 
 
   renderBlocks(blocks);
@@ -101,6 +163,8 @@ function getMasterPeople() {
   return $("peopleList").value
     .split("\n")
     .map(s => s.trim())
+    .filter(Boolean)
+    .map(line => line.split("|")[0].trim())  // keep only the name
     .filter(Boolean);
 }
 
@@ -548,3 +612,4 @@ $("generate").addEventListener("click", generateText);
 $("copy").addEventListener("click", copyOutput);
 $("saveLocal").addEventListener("click", saveLocal);
 $("loadLocal").addEventListener("click", loadLocal);
+
