@@ -14,6 +14,41 @@ const ROLES = [
 
 const $ = (id) => document.getElementById(id);
 
+function extractNameOnly(line) {
+  // If pipe format, name is before the pipe
+  if (line.includes("|")) return line.split("|")[0].trim();
+
+  // If "Name 9-5" format, strip the trailing time range
+  // Matches: "A 9-5", "Eric 10:30-4", "Tania 8-12"
+  const m = line.match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
+  if (m) return m[1].trim();
+
+  // Otherwise it's just a name
+  return line.trim();
+}
+
+function parseDashRange(line) {
+  // Returns {name, entry, exit} OR null if not a dash-range line
+  const m = line.trim().match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
+  if (!m) return null;
+
+  const name = m[1].trim();
+  const startRaw = m[2].trim();
+  const endRaw = m[3].trim();
+
+  // Use your parseTimeLabel; it already supports "8", "8:30", "8 AM" depending on your version
+  let entry = parseTimeLabel(startRaw);
+  let exit = parseTimeLabel(endRaw);
+
+  if (entry == null || exit == null) return null;
+
+  // If someone typed 9-5, treat as 9AM-5PM
+  if (exit <= entry) exit += 12 * 60;
+
+  return { name, entry, exit };
+}
+
+
 function minutesToLabel(mins) {
   const h24 = Math.floor(mins / 60) % 24;
   const m = mins % 60;
@@ -127,48 +162,44 @@ const rawLines = $("peopleList").value
   .filter(Boolean);
 
 const peopleAvail = rawLines.map(line => {
-  const parts = line.split("|").map(x => x.trim()).filter(Boolean);
-  const name = parts[0];
-  if (!name) return null;
+  // 1) Pipe format: Name | 9 AM | 5 PM
+  if (line.includes("|")) {
+    const parts = line.split("|").map(x => x.trim()).filter(Boolean);
+    const name = parts[0];
+    if (!name) return null;
 
-  // If no times, assume they work the whole shift
-  if (parts.length < 3) {
-    return { name, start, end };
+    if (parts.length < 3) return { name, start, end };
+
+    const entry = parseTimeLabel(parts[1]);
+    const exit  = parseTimeLabel(parts[2]);
+
+    if (entry == null || exit == null || !(exit > entry)) {
+      alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 9 AM | 5 PM`);
+      return null;
+    }
+    return { name, start: entry, end: exit };
   }
 
-  let entry = parseTimeLabel(parts[1]);
-  let exit  = parseTimeLabel(parts[2]);
-
-  // Handle shorthand like "8-4"
-  if (entry != null && exit != null && entry >= exit) {
-    // assume entry AM, exit PM
-    exit += 12 * 60;
+  // 2) Dash format: Name 9-5
+  const dash = parseDashRange(line);
+  if (dash) {
+    return { name: dash.name, start: dash.entry, end: dash.exit };
   }
 
-
-  if (entry == null || exit == null || !(exit > entry)) {
-    alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 8:00 AM | 12:00 PM`);
-    return null;
-  }
-
-  return { name, start: entry, end: exit };
+  // 3) Name only: full shift
+  return { name: line.trim(), start, end };
 }).filter(Boolean);
 
-// Assign people to each block by overlap with the block time
+// Assign people to each block by overlap
 for (const blk of blocks) {
   const blkStart = parseTimeLabel(blk.start);
   const blkEnd   = parseTimeLabel(blk.end);
 
-  // Fallback if parsing fails for any reason
-  if (blkStart == null || blkEnd == null) {
-    blk.people = peopleAvail.map(p => p.name);
-    continue;
-  }
-
   blk.people = peopleAvail
-    .filter(p => p.start < blkEnd && p.end > blkStart) // overlap test
+    .filter(p => p.start < blkEnd && p.end > blkStart)
     .map(p => p.name);
 }
+
 
 
   renderBlocks(blocks);
@@ -184,9 +215,10 @@ function getMasterPeople() {
     .split("\n")
     .map(s => s.trim())
     .filter(Boolean)
-    .map(line => line.split("|")[0].trim())  // keep only the name
+    .map(extractNameOnly)
     .filter(Boolean);
 }
+
 
 function uniq(arr) {
   return [...new Set(arr)];
@@ -646,6 +678,7 @@ $("copy").addEventListener("click", copyOutput);
 $("saveLocal").addEventListener("click", saveLocal);
 $("loadLocal").addEventListener("click", loadLocal);
 $("clearPeople").addEventListener("click", clearPeople);
+
 
 
 
