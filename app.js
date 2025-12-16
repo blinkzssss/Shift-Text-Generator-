@@ -772,6 +772,16 @@ function clearNames() {
   window.__blocks = [];
 }
 
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "UPDATED") {
+      alert(`App updated (${event.data.version}) — reloading...`);
+      window.location.reload();
+    }
+  });
+}
+
 // -----------------------------
 // Wire up buttons
 // -----------------------------
@@ -782,3 +792,4 @@ $("copy")?.addEventListener("click", copyOutput);
 $("saveLocal")?.addEventListener("click", saveLocal);
 $("loadLocal")?.addEventListener("click", loadLocal);
 $("clearPeople")?.addEventListener("click", clearNames);
+
