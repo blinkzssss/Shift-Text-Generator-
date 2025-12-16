@@ -7,15 +7,23 @@ const ROLES = [
   { key: "lanes", label: "Lanes" },
   { key: "lane1", label: "Lane 1" },
   { key: "lane2", label: "Lane 2" },
+
   { key: "backShots", label: "Back Shots" },
   { key: "backMilk", label: "Back Milk" },
   { key: "frontShots", label: "Front Shots" },
   { key: "frontMilk", label: "Front Milk" },
+
+  // 5-person special combined role
+  { key: "texterSlayer", label: "Texter / Slayer" },
+
+  // 6+ roles
   { key: "texter", label: "Texter" },
   { key: "slayer", label: "Slayer" },
+
   { key: "blender", label: "Blender" },
 ];
 
+// Outside cooldown roles (NOTE: texterSlayer is NOT outside)
 const OUTSIDE_ROLES = new Set(["lanes", "lane1", "lane2", "texter"]);
 
 const $ = (id) => document.getElementById(id);
@@ -23,15 +31,12 @@ const $ = (id) => document.getElementById(id);
 // -----------------------------
 // Time helpers
 // -----------------------------
-
 function minutesToLabel(mins) {
   const h24 = Math.floor(mins / 60) % 24;
   const m = mins % 60;
-
   const ampm = h24 >= 12 ? "PM" : "AM";
   let h12 = h24 % 12;
   if (h12 === 0) h12 = 12;
-
   const mm = String(m).padStart(2, "0");
   return `${h12}:${mm} ${ampm}`;
 }
@@ -39,7 +44,7 @@ function minutesToLabel(mins) {
 // Parses:
 // - "8:00 AM", "8 AM"
 // - "8:00 PM", "8 PM"
-// - "8" (defaults to AM, can be adjusted later if needed)
+// - "8" (defaults to AM)
 function parseTimeLabel(s) {
   if (!s) return null;
   s = String(s).trim().toUpperCase();
@@ -50,9 +55,7 @@ function parseTimeLabel(s) {
     let hh = Number(m[1]);
     let mm = Number(m[2] || 0);
     const ap = m[3];
-
     if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
-
     if (ap === "AM") {
       if (hh === 12) hh = 0;
     } else {
@@ -90,7 +93,6 @@ function timeToMinutes(t) {
 // -----------------------------
 // Parsing people lines
 // -----------------------------
-
 function extractNameOnly(line) {
   if (!line) return "";
   line = line.trim();
@@ -100,16 +102,19 @@ function extractNameOnly(line) {
   if (line.includes("|")) return line.split("|")[0].trim();
 
   // Dash format: Name 9-5 or Name 8:30-3
-  const m = line.match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
+  const m = line.match(
+    /^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/
+  );
   if (m) return m[1].trim();
 
-  // Name only
   return line;
 }
 
 function parseDashRange(line) {
   // returns { name, entry, exit } or null
-  const m = String(line).trim().match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
+  const m = String(line)
+    .trim()
+    .match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
   if (!m) return null;
 
   const name = m[1].trim();
@@ -118,7 +123,6 @@ function parseDashRange(line) {
 
   let entry = parseTimeLabel(startRaw);
   let exit = parseTimeLabel(endRaw);
-
   if (entry == null || exit == null) return null;
 
   // Interpret "9-5" as 9AM-5PM by default
@@ -130,7 +134,7 @@ function parseDashRange(line) {
 function getMasterPeopleNamesOnly() {
   return $("peopleList").value
     .split("\n")
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean)
     .map(extractNameOnly)
     .filter(Boolean);
@@ -144,38 +148,45 @@ function getMasterPeopleNamesOnly() {
 function parsePeopleAvailability(shiftStartMin, shiftEndMin) {
   const rawLines = $("peopleList").value
     .split("\n")
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 
-  const avail = rawLines.map(line => {
-    // Pipe format
-    if (line.includes("|")) {
-      const parts = line.split("|").map(x => x.trim()).filter(Boolean);
-      const name = parts[0];
-      if (!name) return null;
+  const avail = rawLines
+    .map((line) => {
+      // Pipe format
+      if (line.includes("|")) {
+        const parts = line
+          .split("|")
+          .map((x) => x.trim())
+          .filter(Boolean);
 
-      // If no time fields, full shift
-      if (parts.length < 3) return { name, start: shiftStartMin, end: shiftEndMin };
+        const name = parts[0];
+        if (!name) return null;
 
-      const entry = parseTimeLabel(parts[1]);
-      const exit  = parseTimeLabel(parts[2]);
+        // If no time fields, full shift
+        if (parts.length < 3) return { name, start: shiftStartMin, end: shiftEndMin };
 
-      if (entry == null || exit == null || !(exit > entry)) {
-        alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 9 AM | 5 PM`);
-        return null;
+        const entry = parseTimeLabel(parts[1]);
+        const exit = parseTimeLabel(parts[2]);
+
+        if (entry == null || exit == null || !(exit > entry)) {
+          alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 9 AM | 5 PM`);
+          return null;
+        }
+
+        return { name, start: entry, end: exit };
       }
-      return { name, start: entry, end: exit };
-    }
 
-    // Dash format
-    const dash = parseDashRange(line);
-    if (dash) return { name: dash.name, start: dash.entry, end: dash.exit };
+      // Dash format
+      const dash = parseDashRange(line);
+      if (dash) return { name: dash.name, start: dash.entry, end: dash.exit };
 
-    // Name only
-    return { name: line.trim(), start: shiftStartMin, end: shiftEndMin };
-  }).filter(Boolean);
+      // Name only
+      return { name: line.trim(), start: shiftStartMin, end: shiftEndMin };
+    })
+    .filter(Boolean);
 
-  // If duplicates exist, keep the FIRST one (simplest)
+  // If duplicates exist, keep the FIRST one
   const seen = new Set();
   const uniq = [];
   for (const p of avail) {
@@ -189,7 +200,6 @@ function parsePeopleAvailability(shiftStartMin, shiftEndMin) {
 // -----------------------------
 // Auto roles by headcount (your rules)
 // -----------------------------
-
 function emptyToggles() {
   const t = {};
   for (const r of ROLES) t[r.key] = false;
@@ -198,7 +208,6 @@ function emptyToggles() {
 
 function autoTogglesForCount(n) {
   const t = emptyToggles();
-
   if (n <= 1) return t;
 
   // 2 people: Machine + Lanes
@@ -208,10 +217,10 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 3 people: Shots + Milk + Lanes (single machine setup => no front/back split)
+  // 3 people: Shots + Milk + Lanes (no split)
   if (n === 3) {
-    t.frontShots = true; // treat as "Shots"
-    t.frontMilk = true;  // treat as "Milk"
+    t.frontShots = true; // will DISPLAY as "Shots"
+    t.frontMilk = true;  // will DISPLAY as "Milk"
     t.lanes = true;
     return t;
   }
@@ -225,17 +234,17 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 5 people: add Texter
+  // 5 people: Shots + Milk + Lane1 + Lane2 + Texter/Slayer (combined)
   if (n === 5) {
     t.frontShots = true;
     t.frontMilk = true;
     t.lane1 = true;
     t.lane2 = true;
-    t.texter = true;
+    t.texterSlayer = true;
     return t;
   }
 
-  // 6 people: add Slayer
+  // 6 people: Texter + Slayer (separate)
   if (n === 6) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -246,7 +255,7 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 7 people: same as 6; extra person becomes another Texter/Slayer slot automatically
+  // 7 people: same as 6; extra person becomes extra Texter/Slayer slot automatically
   if (n === 7) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -273,15 +282,28 @@ function autoTogglesForCount(n) {
   return t;
 }
 
-function roleLabel(roleKey) {
-  const r = ROLES.find(x => x.key === roleKey);
+function baseRoleLabel(roleKey) {
+  const r = ROLES.find((x) => x.key === roleKey);
   return r ? r.label : roleKey;
+}
+
+// Dynamic labels:
+// - If there is NO split (back roles off), show "Shots"/"Milk" instead of "Front Shots"/"Front Milk"
+function roleLabelForBlock(roleKey, blk) {
+  const hasSplit =
+    !!blk?.toggles?.backShots || !!blk?.toggles?.backMilk;
+
+  if (!hasSplit) {
+    if (roleKey === "frontShots") return "Shots";
+    if (roleKey === "frontMilk") return "Milk";
+  }
+
+  return baseRoleLabel(roleKey);
 }
 
 // -----------------------------
 // Draft state
 // -----------------------------
-
 function persistDraft(blocks) {
   window.__blocks = blocks;
 }
@@ -289,17 +311,15 @@ function persistDraft(blocks) {
 // -----------------------------
 // Build blocks
 // -----------------------------
-
 function buildBlocks() {
   const start = timeToMinutes($("startTime").value);
   const end = timeToMinutes($("endTime").value);
-
   const rot = Number($("rotation").value);
+
   if (!Number.isFinite(rot) || rot < 1) {
     alert("Rotation must be a positive number of minutes.");
     return;
   }
-
   if (start == null || end == null || !(end > start)) {
     alert("End time must be after start time.");
     return;
@@ -320,13 +340,12 @@ function buildBlocks() {
 
   // Build roster per block from availability windows
   const peopleAvail = parsePeopleAvailability(start, end);
-
   for (const blk of blocks) {
     const blkStart = parseTimeLabel(blk.start);
     const blkEnd = parseTimeLabel(blk.end);
     blk.people = peopleAvail
-      .filter(p => p.start < blkEnd && p.end > blkStart)
-      .map(p => p.name);
+      .filter((p) => p.start < blkEnd && p.end > blkStart)
+      .map((p) => p.name);
 
     blk.toggles = autoTogglesForCount(blk.people.length);
   }
@@ -338,7 +357,6 @@ function buildBlocks() {
 // -----------------------------
 // Render blocks (chips + auto roles display)
 // -----------------------------
-
 function uniq(arr) {
   return [...new Set(arr)];
 }
@@ -351,7 +369,7 @@ function renderBlocks(blocks) {
 
   blocks.forEach((blk, idx) => {
     // Keep block people in sync with master list (remove deleted names)
-    blk.people = (blk.people || []).filter(p => masterPeople.includes(p));
+    blk.people = (blk.people || []).filter((p) => masterPeople.includes(p));
     blk.people = uniq(blk.people);
 
     // Auto roles for current headcount
@@ -359,7 +377,6 @@ function renderBlocks(blocks) {
 
     const el = document.createElement("div");
     el.className = "block";
-
     el.innerHTML = `
       <h3>Block ${idx + 1}: ${blk.start} - ${blk.end}</h3>
 
@@ -368,12 +385,15 @@ function renderBlocks(blocks) {
           <label>People in this block (click ✕ to remove / + to add)</label>
 
           <div class="row" style="margin-bottom:10px">
-            <button class="btn ghost" data-copy-prev="${idx}" ${idx === 0 ? "disabled" : ""}>Copy previous roster</button>
+            <button class="btn ghost" data-copy-prev="${idx}" ${idx === 0 ? "disabled" : ""}>
+              Copy previous roster
+            </button>
             <button class="btn ghost" data-all-on="${idx}">All on</button>
             <button class="btn ghost" data-all-off="${idx}">All off</button>
           </div>
 
           <div data-people-chips="${idx}" class="row"></div>
+
           <div class="muted" style="margin-top:8px">
             Auto roles update based on how many people are in this block.
           </div>
@@ -386,20 +406,16 @@ function renderBlocks(blocks) {
         </div>
       </div>
     `;
-
     root.appendChild(el);
 
-    // --- People chips ---
     const chipsWrap = el.querySelector(`[data-people-chips="${idx}"]`);
     const rolesWrap = el.querySelector(`[data-auto-roles="${idx}"]`);
 
     function renderAutoRoles() {
       rolesWrap.innerHTML = "";
 
-      // list enabled role keys (true)
-      const enabledKeys = ROLES.map(r => r.key).filter(k => !!blk.toggles[k]);
+      const enabledKeys = ROLES.map((r) => r.key).filter((k) => !!blk.toggles[k]);
 
-      // Show nothing if no roles
       if (!enabledKeys.length) {
         const span = document.createElement("div");
         span.className = "muted";
@@ -413,7 +429,7 @@ function renderBlocks(blocks) {
         pill.className = "pill";
         pill.style.opacity = "0.95";
         pill.style.cursor = "default";
-        pill.textContent = roleLabel(key);
+        pill.textContent = roleLabelForBlock(key, blk);
         rolesWrap.appendChild(pill);
       }
     }
@@ -421,10 +437,8 @@ function renderBlocks(blocks) {
     function renderPeopleChips() {
       chipsWrap.innerHTML = "";
 
-      // show every master person as a chip; active if in blk.people
       for (const person of masterPeople) {
         const active = blk.people.includes(person);
-
         const chip = document.createElement("button");
         chip.className = "btn";
         chip.type = "button";
@@ -437,18 +451,16 @@ function renderBlocks(blocks) {
         chip.style.display = "inline-flex";
         chip.style.alignItems = "center";
         chip.style.gap = "8px";
-
         chip.innerHTML = `
           <span>${person}</span>
           <strong style="opacity:${active ? 1 : 0.4}">${active ? "✕" : "+"}</strong>
         `;
 
         chip.onclick = () => {
-          if (active) blk.people = blk.people.filter(p => p !== person);
+          if (active) blk.people = blk.people.filter((p) => p !== person);
           else blk.people = uniq([...blk.people, person]);
 
           blk.toggles = autoTogglesForCount(blk.people.length);
-
           persistDraft(blocks);
           renderPeopleChips();
           renderAutoRoles();
@@ -468,7 +480,6 @@ function renderBlocks(blocks) {
         blk.people = [...(blocks[idx - 1].people || [])];
         blk.people = uniq(blk.people);
         blk.toggles = autoTogglesForCount(blk.people.length);
-
         persistDraft(blocks);
         renderPeopleChips();
         renderAutoRoles();
@@ -478,7 +489,6 @@ function renderBlocks(blocks) {
     el.querySelector(`[data-all-on="${idx}"]`).onclick = () => {
       blk.people = uniq([...masterPeople]);
       blk.toggles = autoTogglesForCount(blk.people.length);
-
       persistDraft(blocks);
       renderPeopleChips();
       renderAutoRoles();
@@ -487,7 +497,6 @@ function renderBlocks(blocks) {
     el.querySelector(`[data-all-off="${idx}"]`).onclick = () => {
       blk.people = [];
       blk.toggles = autoTogglesForCount(0);
-
       persistDraft(blocks);
       renderPeopleChips();
       renderAutoRoles();
@@ -498,9 +507,8 @@ function renderBlocks(blocks) {
 }
 
 // -----------------------------
-// Assignment logic (same as before)
+// Assignment logic
 // -----------------------------
-
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -517,10 +525,18 @@ function buildRoleSlotsForBlock(blk) {
   const hasLane2 = !!blk.toggles.lane2;
 
   if (hasLanes && (hasLane1 || hasLane2)) {
-    throw new Error(`Enable either "Lanes" OR ("Lane 1" + "Lane 2"), not both.`);
+    throw new Error('Enable either "Lanes" OR ("Lane 1" + "Lane 2"), not both.');
   }
   if (!hasLanes && (hasLane1 !== hasLane2)) {
-    throw new Error(`If using Lane 1/2, you must enable BOTH Lane 1 and Lane 2.`);
+    throw new Error('If using Lane 1/2, you must enable BOTH Lane 1 and Lane 2.');
+  }
+
+  // TexterSlayer cannot coexist with texter/slayer
+  const hasTexterSlayer = !!blk.toggles.texterSlayer;
+  const hasTexter = !!blk.toggles.texter;
+  const hasSlayer = !!blk.toggles.slayer;
+  if (hasTexterSlayer && (hasTexter || hasSlayer)) {
+    throw new Error('Invalid roles: "Texter / Slayer" cannot be enabled with "Texter" or "Slayer".');
   }
 
   // Machine cannot be enabled with any shots/milk roles
@@ -532,13 +548,11 @@ function buildRoleSlotsForBlock(blk) {
     !!blk.toggles.backMilk;
 
   if (machineOn && milkShotsOn) {
-    throw new Error(
-      `Invalid roles: If "Machine" is enabled, you cannot enable Shots/Milk roles in the same block.`
-    );
+    throw new Error('Invalid roles: If "Machine" is enabled, you cannot enable Shots/Milk roles in the same block.');
   }
 
   // Enabled roles -> 1 slot each
-  const enabled = ROLES.map(r => r.key).filter(k => !!blk.toggles[k]);
+  const enabled = ROLES.map((r) => r.key).filter((k) => !!blk.toggles[k]);
   let slots = [...enabled];
 
   const peopleCount = blk.people.length;
@@ -550,7 +564,7 @@ function buildRoleSlotsForBlock(blk) {
 
   const extra = peopleCount - baseSlotsCount;
 
-  // Extras can only go to texter/slayer
+  // Extras can only go to texter/slayer (NOT texterSlayer)
   if (extra > 0) {
     const canAbsorb = [];
     if (blk.toggles.texter) canAbsorb.push("texter");
@@ -576,10 +590,15 @@ function assignBlock(people, roleSlots, state) {
   const assignmentByRole = {}; // roleKey -> array of names
 
   function slotCandidates(roleKey) {
-    return people.filter(p => {
+    return people.filter((p) => {
       if (used.has(p)) return false;
-      if ((state.lastRole[p] || null) === roleKey) return false; // no same role consecutive blocks
-      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false; // outside cooldown
+
+      // no same role consecutive blocks
+      if ((state.lastRole[p] || null) === roleKey) return false;
+
+      // outside cooldown (note: texterSlayer is NOT in OUTSIDE_ROLES)
+      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false;
+
       return true;
     });
   }
@@ -597,6 +616,8 @@ function assignBlock(people, roleSlots, state) {
     if (slotsLeft.length === 0) return true;
 
     const roleKey = pickNextSlot(slotsLeft);
+
+    // remove one instance of roleKey
     const remaining = [];
     let removed = false;
     for (const s of slotsLeft) {
@@ -607,6 +628,7 @@ function assignBlock(people, roleSlots, state) {
     const candidates = shuffle(slotCandidates(roleKey));
     for (const person of candidates) {
       used.add(person);
+
       if (!assignmentByRole[roleKey]) assignmentByRole[roleKey] = [];
       assignmentByRole[roleKey].push(person);
 
@@ -622,9 +644,7 @@ function assignBlock(people, roleSlots, state) {
 
   const ok = backtrack([...roleSlots]);
   if (!ok) {
-    throw new Error(
-      `No valid assignment found (outside cooldown or repeat-role rule). Try adjusting roster.`
-    );
+    throw new Error("No valid assignment found (outside cooldown or repeat-role rule). Try adjusting roster.");
   }
 
   return assignmentByRole;
@@ -633,7 +653,6 @@ function assignBlock(people, roleSlots, state) {
 // -----------------------------
 // Generate output
 // -----------------------------
-
 function generateText() {
   const blocks = window.__blocks || [];
   if (!blocks.length) {
@@ -642,8 +661,8 @@ function generateText() {
   }
 
   const state = {
-    lastRole: {},               // person -> last roleKey
-    outsideCooldown: new Set()  // people who were outside last block
+    lastRole: {}, // person -> last roleKey
+    outsideCooldown: new Set(), // people who were outside last block
   };
 
   const OUTPUT_ORDER = [
@@ -651,11 +670,15 @@ function generateText() {
     "lanes",
     "lane1",
     "lane2",
+
     "backShots",
     "backMilk",
     "frontShots",
     "frontMilk",
+
     "blender",
+
+    "texterSlayer", // 5-person combined
     "texter",
     "slayer",
   ];
@@ -695,8 +718,7 @@ function generateText() {
       const enabled = !!blk.toggles[roleKey];
       const assigned = assignmentByRole[roleKey] || [];
       if (!enabled && assigned.length === 0) continue;
-
-      out += `${roleLabel(roleKey)}: ${assigned.join(", ")}\n`;
+      out += `${roleLabelForBlock(roleKey, blk)}: ${assigned.join(", ")}\n`;
     }
 
     out += `\n`;
@@ -728,7 +750,6 @@ async function copyOutput() {
 // -----------------------------
 // Save / Load / Clear
 // -----------------------------
-
 function saveLocal() {
   const blocks = window.__blocks || [];
   const data = {
@@ -747,13 +768,13 @@ function loadLocal() {
   if (!raw) return alert("No saved data found.");
 
   const data = JSON.parse(raw);
-
   $("startTime").value = data.startTime || "12:00";
   $("endTime").value = data.endTime || "18:00";
   $("rotation").value = data.rotation || "60";
   $("peopleList").value = data.peopleList || "";
 
   const blocks = data.blocks || [];
+
   // Re-auto roles on load (in case rules changed)
   for (const blk of blocks) {
     blk.toggles = autoTogglesForCount((blk.people || []).length);
@@ -761,7 +782,6 @@ function loadLocal() {
 
   renderBlocks(blocks);
   persistDraft(blocks);
-
   alert("Loaded.");
 }
 
@@ -771,7 +791,6 @@ function clearNames() {
   $("output").textContent = "(nothing yet)";
   window.__blocks = [];
 }
-
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
@@ -785,11 +804,9 @@ if ("serviceWorker" in navigator) {
 // -----------------------------
 // Wire up buttons
 // -----------------------------
-
 $("buildBlocks")?.addEventListener("click", buildBlocks);
 $("generate")?.addEventListener("click", generateText);
 $("copy")?.addEventListener("click", copyOutput);
 $("saveLocal")?.addEventListener("click", saveLocal);
 $("loadLocal")?.addEventListener("click", loadLocal);
 $("clearPeople")?.addEventListener("click", clearNames);
-
