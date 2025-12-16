@@ -83,6 +83,72 @@ function parseTimeLabel(s) {
   return null;
 }
 
+// Smart parse for times WITHOUT AM/PM using the shift window to infer AM vs PM
+function parseTimeLabelSmart(s, shiftStartMin, shiftEndMin) {
+  if (!s) return null;
+  s = String(s).trim().toUpperCase();
+
+  // If AM/PM explicitly provided, use normal parser
+  if (/\b(AM|PM)\b/.test(s)) return parseTimeLabel(s);
+
+  // If 24h format like 15:30, use normal parser
+  if (/^\d{1,2}:\d{2}$/.test(s)) return parseTimeLabel(s);
+
+  // If it's just "H" or "H:MM" with no AM/PM, infer based on shift window
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return parseTimeLabel(s);
+
+  let hh = Number(m[1]);
+  let mm = Number(m[2] || 0);
+  if (hh < 1 || hh > 12 || mm < 0 || mm > 59) return null;
+
+  const hourMod = hh % 12; // 12 -> 0
+  const am = hourMod * 60 + mm; // 12 -> 0:xx
+  const pm = (hourMod + 12) * 60 + mm; // 12 -> 12:xx
+
+  // prefer the candidate that falls inside the shift window; otherwise closest to it
+  const distToWindow = (t) => {
+    if (t < shiftStartMin) return shiftStartMin - t;
+    if (t > shiftEndMin) return t - shiftEndMin;
+    return 0;
+  };
+
+  return distToWindow(pm) <= distToWindow(am) ? pm : am;
+}
+
+function bestRangeWithinShift(entryCandidates, exitCandidates, shiftStartMin, shiftEndMin) {
+  let best = null;
+  let bestScore = -Infinity;
+
+  for (const entry of entryCandidates) {
+    for (const exit0 of exitCandidates) {
+      let exit = exit0;
+
+      // If exit <= entry, assume it’s later (add 12h). If still not, add 24h.
+      if (exit <= entry) exit += 12 * 60;
+      if (exit <= entry) exit += 24 * 60;
+
+      const overlap = Math.max(
+        0,
+        Math.min(exit, shiftEndMin) - Math.max(entry, shiftStartMin)
+      );
+
+      // Score: overlap heavily, then closeness to shift bounds
+      const score =
+        overlap * 100000 -
+        Math.abs(entry - shiftStartMin) -
+        Math.abs(exit - shiftEndMin);
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = { entry, exit };
+      }
+    }
+  }
+
+  return best;
+}
+
 function timeToMinutes(t) {
   // input type="time" gives "HH:MM"
   const [hh, mm] = String(t).split(":").map(Number);
@@ -107,11 +173,12 @@ function extractNameOnly(line) {
   );
   if (m) return m[1].trim();
 
+  // Name only
   return line;
 }
 
-function parseDashRange(line) {
-  // returns { name, entry, exit } or null
+// UPDATED: uses shift window inference when no AM/PM provided
+function parseDashRange(line, shiftStartMin, shiftEndMin) {
   const m = String(line)
     .trim()
     .match(/^(.+?)\s+(\d{1,2}(?::\d{2})?)\s*-\s*(\d{1,2}(?::\d{2})?)$/);
@@ -121,14 +188,37 @@ function parseDashRange(line) {
   const startRaw = m[2].trim();
   const endRaw = m[3].trim();
 
-  let entry = parseTimeLabel(startRaw);
-  let exit = parseTimeLabel(endRaw);
-  if (entry == null || exit == null) return null;
+  // If either side has AM/PM, use strict parseTimeLabel
+  const hasAmPm = /\b(AM|PM)\b/i.test(startRaw) || /\b(AM|PM)\b/i.test(endRaw);
 
-  // Interpret "9-5" as 9AM-5PM by default
-  if (exit <= entry) exit += 12 * 60;
+  if (hasAmPm) {
+    let entry = parseTimeLabel(startRaw);
+    let exit = parseTimeLabel(endRaw);
+    if (entry == null || exit == null) return null;
+    if (exit <= entry) exit += 12 * 60;
+    return { name, entry, exit };
+  }
 
-  return { name, entry, exit };
+  // No AM/PM provided -> try both AM and PM and pick best fit for shift window
+  const s = startRaw.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  const e = endRaw.match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!s || !e) return null;
+
+  const sh = Number(s[1]), sm = Number(s[2] || 0);
+  const eh = Number(e[1]), em = Number(e[2] || 0);
+  if (sh < 1 || sh > 12 || sm < 0 || sm > 59) return null;
+  if (eh < 1 || eh > 12 || em < 0 || em > 59) return null;
+
+  const shMod = sh % 12;
+  const ehMod = eh % 12;
+
+  const entryCandidates = [shMod * 60 + sm, (shMod + 12) * 60 + sm];
+  const exitCandidates = [ehMod * 60 + em, (ehMod + 12) * 60 + em];
+
+  const best = bestRangeWithinShift(entryCandidates, exitCandidates, shiftStartMin, shiftEndMin);
+  if (!best) return null;
+
+  return { name, entry: best.entry, exit: best.exit };
 }
 
 function getMasterPeopleNamesOnly() {
@@ -155,19 +245,15 @@ function parsePeopleAvailability(shiftStartMin, shiftEndMin) {
     .map((line) => {
       // Pipe format
       if (line.includes("|")) {
-        const parts = line
-          .split("|")
-          .map((x) => x.trim())
-          .filter(Boolean);
-
+        const parts = line.split("|").map((x) => x.trim()).filter(Boolean);
         const name = parts[0];
         if (!name) return null;
 
         // If no time fields, full shift
         if (parts.length < 3) return { name, start: shiftStartMin, end: shiftEndMin };
 
-        const entry = parseTimeLabel(parts[1]);
-        const exit = parseTimeLabel(parts[2]);
+        const entry = parseTimeLabelSmart(parts[1], shiftStartMin, shiftEndMin);
+        const exit = parseTimeLabelSmart(parts[2], shiftStartMin, shiftEndMin);
 
         if (entry == null || exit == null || !(exit > entry)) {
           alert(`Invalid entry/exit for:\n${line}\n\nUse: Name | 9 AM | 5 PM`);
@@ -177,8 +263,8 @@ function parsePeopleAvailability(shiftStartMin, shiftEndMin) {
         return { name, start: entry, end: exit };
       }
 
-      // Dash format
-      const dash = parseDashRange(line);
+      // Dash format (UPDATED)
+      const dash = parseDashRange(line, shiftStartMin, shiftEndMin);
       if (dash) return { name: dash.name, start: dash.entry, end: dash.exit };
 
       // Name only
@@ -219,8 +305,8 @@ function autoTogglesForCount(n) {
 
   // 3 people: Shots + Milk + Lanes (no split)
   if (n === 3) {
-    t.frontShots = true; // will DISPLAY as "Shots"
-    t.frontMilk = true;  // will DISPLAY as "Milk"
+    t.frontShots = true; // display as Shots
+    t.frontMilk = true;  // display as Milk
     t.lanes = true;
     return t;
   }
@@ -234,7 +320,7 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 5 people: Shots + Milk + Lane1 + Lane2 + Texter/Slayer (combined)
+  // 5 people: Texter/Slayer combined
   if (n === 5) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -244,7 +330,7 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 6 people: Texter + Slayer (separate)
+  // 6 people: Texter + Slayer
   if (n === 6) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -255,7 +341,7 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 7 people: same as 6; extra person becomes extra Texter/Slayer slot automatically
+  // 7 people: same as 6; extra person becomes extra Texter/Slayer assignment automatically
   if (n === 7) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -266,7 +352,7 @@ function autoTogglesForCount(n) {
     return t;
   }
 
-  // 8+ people: full split front/back + lane1+lane2 + texter + slayer
+  // 8+ people: full split
   if (n >= 8) {
     t.frontShots = true;
     t.frontMilk = true;
@@ -287,17 +373,13 @@ function baseRoleLabel(roleKey) {
   return r ? r.label : roleKey;
 }
 
-// Dynamic labels:
-// - If there is NO split (back roles off), show "Shots"/"Milk" instead of "Front Shots"/"Front Milk"
+// Dynamic labels: if NO split, show Shots/Milk
 function roleLabelForBlock(roleKey, blk) {
-  const hasSplit =
-    !!blk?.toggles?.backShots || !!blk?.toggles?.backMilk;
-
+  const hasSplit = !!blk?.toggles?.backShots || !!blk?.toggles?.backMilk;
   if (!hasSplit) {
     if (roleKey === "frontShots") return "Shots";
     if (roleKey === "frontMilk") return "Milk";
   }
-
   return baseRoleLabel(roleKey);
 }
 
@@ -519,7 +601,6 @@ function shuffle(arr) {
 }
 
 function buildRoleSlotsForBlock(blk) {
-  // Validate lanes vs lane1/lane2
   const hasLanes = !!blk.toggles.lanes;
   const hasLane1 = !!blk.toggles.lane1;
   const hasLane2 = !!blk.toggles.lane2;
@@ -531,7 +612,6 @@ function buildRoleSlotsForBlock(blk) {
     throw new Error('If using Lane 1/2, you must enable BOTH Lane 1 and Lane 2.');
   }
 
-  // TexterSlayer cannot coexist with texter/slayer
   const hasTexterSlayer = !!blk.toggles.texterSlayer;
   const hasTexter = !!blk.toggles.texter;
   const hasSlayer = !!blk.toggles.slayer;
@@ -539,7 +619,6 @@ function buildRoleSlotsForBlock(blk) {
     throw new Error('Invalid roles: "Texter / Slayer" cannot be enabled with "Texter" or "Slayer".');
   }
 
-  // Machine cannot be enabled with any shots/milk roles
   const machineOn = !!blk.toggles.machine;
   const milkShotsOn =
     !!blk.toggles.frontShots ||
@@ -551,7 +630,6 @@ function buildRoleSlotsForBlock(blk) {
     throw new Error('Invalid roles: If "Machine" is enabled, you cannot enable Shots/Milk roles in the same block.');
   }
 
-  // Enabled roles -> 1 slot each
   const enabled = ROLES.map((r) => r.key).filter((k) => !!blk.toggles[k]);
   let slots = [...enabled];
 
@@ -592,13 +670,8 @@ function assignBlock(people, roleSlots, state) {
   function slotCandidates(roleKey) {
     return people.filter((p) => {
       if (used.has(p)) return false;
-
-      // no same role consecutive blocks
-      if ((state.lastRole[p] || null) === roleKey) return false;
-
-      // outside cooldown (note: texterSlayer is NOT in OUTSIDE_ROLES)
-      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false;
-
+      if ((state.lastRole[p] || null) === roleKey) return false; // no same role consecutive blocks
+      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false; // outside cooldown
       return true;
     });
   }
@@ -617,7 +690,6 @@ function assignBlock(people, roleSlots, state) {
 
     const roleKey = pickNextSlot(slotsLeft);
 
-    // remove one instance of roleKey
     const remaining = [];
     let removed = false;
     for (const s of slotsLeft) {
@@ -670,15 +742,12 @@ function generateText() {
     "lanes",
     "lane1",
     "lane2",
-
     "backShots",
     "backMilk",
     "frontShots",
     "frontMilk",
-
     "blender",
-
-    "texterSlayer", // 5-person combined
+    "texterSlayer",
     "texter",
     "slayer",
   ];
@@ -693,7 +762,6 @@ function generateText() {
       return;
     }
 
-    // Ensure roles reflect roster count at generation time too
     blk.toggles = autoTogglesForCount(blk.people.length);
 
     let roleSlots;
@@ -723,7 +791,6 @@ function generateText() {
 
     out += `\n`;
 
-    // Update state
     const newOutside = new Set();
     for (const [roleKey, peopleArr] of Object.entries(assignmentByRole)) {
       for (const person of peopleArr) {
@@ -774,8 +841,6 @@ function loadLocal() {
   $("peopleList").value = data.peopleList || "";
 
   const blocks = data.blocks || [];
-
-  // Re-auto roles on load (in case rules changed)
   for (const blk of blocks) {
     blk.toggles = autoTogglesForCount((blk.people || []).length);
   }
