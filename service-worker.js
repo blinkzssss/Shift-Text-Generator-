@@ -1,4 +1,5 @@
-const VERSION = "v7"; // <-- bump this on every update
+// service-worker.js
+const VERSION = "v8"; // <-- bump this on every update
 const CACHE_NAME = `shift-text-${VERSION}`;
 
 const ASSETS = [
@@ -7,23 +8,28 @@ const ASSETS = [
   "./app.js",
   "./manifest.json",
   "./service-worker.js",
-  "./icon-512.png"
+  // "./icon-512.png" // keep commented if you’re not using an icon yet
 ];
 
 // Install: cache core files
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
 });
 
-// Activate: delete old caches
+// Activate: delete old caches + notify clients
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
-    ).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)))
+      )
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: "window", includeUncontrolled: true }))
+      .then((clients) => {
+        clients.forEach((client) => client.postMessage({ type: "UPDATED", version: VERSION }));
+      })
   );
 });
 
@@ -39,5 +45,3 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
-
-
