@@ -725,7 +725,7 @@ function generateText() {
       return;
     }
 
-    out += `☕ ${blk.start} - ${blk.end} ☕\n`;
+    out += ` ${blk.start} - ${blk.end} \n`;
 
     for (const roleKey of OUTPUT_ORDER) {
       const enabled = !!blk.toggles[roleKey];
@@ -820,3 +820,4 @@ $("copy")?.addEventListener("click", copyOutput);
 $("saveLocal")?.addEventListener("click", saveLocal);
 $("loadLocal")?.addEventListener("click", loadLocal);
 $("clearPeople")?.addEventListener("click", clearNames);
+
