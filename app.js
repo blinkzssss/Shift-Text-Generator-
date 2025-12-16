@@ -116,39 +116,6 @@ function parseTimeLabelSmart(s, shiftStartMin, shiftEndMin) {
   return distToWindow(pm) <= distToWindow(am) ? pm : am;
 }
 
-function bestRangeWithinShift(entryCandidates, exitCandidates, shiftStartMin, shiftEndMin) {
-  let best = null;
-  let bestScore = -Infinity;
-
-  for (const entry of entryCandidates) {
-    for (const exit0 of exitCandidates) {
-      let exit = exit0;
-
-      // If exit <= entry, assume it’s later (add 12h). If still not, add 24h.
-      if (exit <= entry) exit += 12 * 60;
-      if (exit <= entry) exit += 24 * 60;
-
-      const overlap = Math.max(
-        0,
-        Math.min(exit, shiftEndMin) - Math.max(entry, shiftStartMin)
-      );
-
-      // Score: overlap heavily, then closeness to shift bounds
-      const score =
-        overlap * 100000 -
-        Math.abs(entry - shiftStartMin) -
-        Math.abs(exit - shiftEndMin);
-
-      if (score > bestScore) {
-        bestScore = score;
-        best = { entry, exit };
-      }
-    }
-  }
-
-  return best;
-}
-
 function timeToMinutes(t) {
   // input type="time" gives "HH:MM"
   const [hh, mm] = String(t).split(":").map(Number);
@@ -177,7 +144,7 @@ function extractNameOnly(line) {
   return line;
 }
 
-// UPDATED: uses shift window inference when no AM/PM provided
+// ✅ FIXED: ALWAYS uses parseTimeLabelSmart for dash ranges (prevents 1-6 => 1AM-6AM)
 function parseDashRange(line, shiftStartMin, shiftEndMin) {
   const m = String(line)
     .trim()
@@ -188,37 +155,15 @@ function parseDashRange(line, shiftStartMin, shiftEndMin) {
   const startRaw = m[2].trim();
   const endRaw = m[3].trim();
 
-  // If either side has AM/PM, use strict parseTimeLabel
-  const hasAmPm = /\b(AM|PM)\b/i.test(startRaw) || /\b(AM|PM)\b/i.test(endRaw);
+  const entry = parseTimeLabelSmart(startRaw, shiftStartMin, shiftEndMin);
+  let exit = parseTimeLabelSmart(endRaw, shiftStartMin, shiftEndMin);
 
-  if (hasAmPm) {
-    let entry = parseTimeLabel(startRaw);
-    let exit = parseTimeLabel(endRaw);
-    if (entry == null || exit == null) return null;
-    if (exit <= entry) exit += 12 * 60;
-    return { name, entry, exit };
-  }
+  if (entry == null || exit == null) return null;
 
-  // No AM/PM provided -> try both AM and PM and pick best fit for shift window
-  const s = startRaw.match(/^(\d{1,2})(?::(\d{2}))?$/);
-  const e = endRaw.match(/^(\d{1,2})(?::(\d{2}))?$/);
-  if (!s || !e) return null;
+  // If exit <= entry, assume it ends later (typical "1-6" meaning 1PM-6PM)
+  if (exit <= entry) exit += 12 * 60;
 
-  const sh = Number(s[1]), sm = Number(s[2] || 0);
-  const eh = Number(e[1]), em = Number(e[2] || 0);
-  if (sh < 1 || sh > 12 || sm < 0 || sm > 59) return null;
-  if (eh < 1 || eh > 12 || em < 0 || em > 59) return null;
-
-  const shMod = sh % 12;
-  const ehMod = eh % 12;
-
-  const entryCandidates = [shMod * 60 + sm, (shMod + 12) * 60 + sm];
-  const exitCandidates = [ehMod * 60 + em, (ehMod + 12) * 60 + em];
-
-  const best = bestRangeWithinShift(entryCandidates, exitCandidates, shiftStartMin, shiftEndMin);
-  if (!best) return null;
-
-  return { name, entry: best.entry, exit: best.exit };
+  return { name, entry, exit };
 }
 
 function getMasterPeopleNamesOnly() {
@@ -263,7 +208,7 @@ function parsePeopleAvailability(shiftStartMin, shiftEndMin) {
         return { name, start: entry, end: exit };
       }
 
-      // Dash format (UPDATED)
+      // Dash format ✅
       const dash = parseDashRange(line, shiftStartMin, shiftEndMin);
       if (dash) return { name: dash.name, start: dash.entry, end: dash.exit };
 
@@ -670,8 +615,8 @@ function assignBlock(people, roleSlots, state) {
   function slotCandidates(roleKey) {
     return people.filter((p) => {
       if (used.has(p)) return false;
-      if ((state.lastRole[p] || null) === roleKey) return false; // no same role consecutive blocks
-      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false; // outside cooldown
+      if ((state.lastRole[p] || null) === roleKey) return false;
+      if (OUTSIDE_ROLES.has(roleKey) && state.outsideCooldown.has(p)) return false;
       return true;
     });
   }
@@ -733,8 +678,8 @@ function generateText() {
   }
 
   const state = {
-    lastRole: {}, // person -> last roleKey
-    outsideCooldown: new Set(), // people who were outside last block
+    lastRole: {},
+    outsideCooldown: new Set(),
   };
 
   const OUTPUT_ORDER = [
