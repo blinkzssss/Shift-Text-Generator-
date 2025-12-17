@@ -1,5 +1,5 @@
 // service-worker.js
-const VERSION = "v8"; // <-- bump this on every update
+const VERSION = "v9"; // <-- bump this on every update
 const CACHE_NAME = `shift-text-${VERSION}`;
 
 const ASSETS = [
@@ -45,3 +45,4 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+
